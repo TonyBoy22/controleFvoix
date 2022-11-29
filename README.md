@@ -37,6 +37,7 @@ The project is divided in 2 main parts:
 Requirements:
 - Docker
 - Chrome
+- DeepSpeech files (.pbmm and .scorer) in the backend folder
 
 ## Sources
 

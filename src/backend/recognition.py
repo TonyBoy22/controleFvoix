@@ -4,107 +4,61 @@ A tool to read a wav file and to give the text with timestamp.
 @author Antoine Marion, Yannick Bellerose
 @version 2.0.0
 '''
+import os
+from wave_file import WaveFile
+from helpers import get_start_and_end_indexes_per_segment, get_timestamp
+import constants as c
+import numpy as np
+from deepspeech_model import DeepSpeechModel
+import time
+from tqdm import tqdm
 
-import speech_recognition as sr
-import pocketsphinx
-import pydub
+class Recognizer(object):
+    
+    def __init__(self):
+        self.input = None
+        self.text_register = []
+        self.timestamps_list = []
+        self.deepspeech_model = None
 
-<<<<<<< Updated upstream
-OFFSET = 0
-CHUNK_LEN = 4
-OVERLAP = 1.5
-ERROR_STRING = '' #is shown when there is no voice in the segment
+    def set_model(self):
+        """
+        Set the deep speech model to be used.
+        """
+        self.deepspeech_model = DeepSpeechModel(
+            "./src/backend/deepspeech-0.9.3-models.pbmm",
+            "./src/backend/deepspeech-0.9.3-models.scorer"
+            )
+        self.deepspeech_model.set_model()
 
-'''
-The idea is to parse an audio file by segment in a loop with an overlap between each segment to avoid the cuts.
+    def recognize(self, user_input, filename):
+        '''
+        Recognize an input in a given audio file
+        '''
+        assert(os.path.exists(filename))
+        
+        wave_file = WaveFile(filename)
+        wave_file.get_wave_bytes()
 
-@param filename the complete filename and path of the .wav file to treat (./myFile.wav)
-@return a json representing the text of the video {"step": x, "content": ["Some text", "some other text", ...]} where X is the step lenght in seconds
-'''
-def getTimestampList(filename):
-    actualOffset = OFFSET
-    text_register = []
-    completed = False
-    file_length = 0
+        self.speech_to_text(wave_file)
+        timestamp_list = get_timestamp(self.text_register, user_input)
+        return timestamp_list
 
-    while not completed:
-        text = ""
-        try:
-            with sr.AudioFile(filename) as source:
-                r = sr.Recognizer()
-                file_length = source.DURATION
-                # r.energy_threshold = 300 # if we have trouble getting clear audio 
-                r.adjust_for_ambient_noise(source)
-                audio = r.record(source, offset=actualOffset, duration=CHUNK_LEN)
-                text = r.recognize_sphinx(audio_data=audio, language='en-US')  # , show_all=True) # Show All gives
-        except sr.UnknownValueError as error:
-            text = ERROR_STRING
-        text_register.append("\""+text+"\"")
-        print("INFO - CONTENT: " + str(actualOffset) + " - " + text)
-        actualOffset += CHUNK_LEN - OVERLAP
-        if (actualOffset) >= file_length:
-            completed = True
-=======
-# The idea is to parse an audio file by segment in
-# a loop with an overlap between each segment to avoid
-# the cuts
-OFFSET = 0  # Tunable parameter
-CHUNK_LEN = 4  # Tunable parameter
-OVERLAP = 1.5  # Tunable parameter
-STEP = CHUNK_LEN - OVERLAP
-text_register = []  # List with an index and the words associated with the index segment
+    def speech_to_text(self, WaveFile):
+        '''
+        Uses the deep speech engine to convert the wave file to text
+        '''
+        self.set_model()
+        number_of_segments = int(WaveFile.duration / (c.STEP)) + 1
+        index_list = np.zeros((number_of_segments, 2), dtype=np.int16)
 
-counter = 0
+        start = time.perf_counter()
+        for i in tqdm(range(number_of_segments)):
+            start_index, end_index = get_start_and_end_indexes_per_segment(len(WaveFile.audio_data), i, WaveFile.byterate)
+            index_list[i][0] = start_index
+            index_list[i][1] = end_index
+            translated_string = self.deepspeech_model.translate_wave_segment(WaveFile.audio_data, start_index, end_index)
+            self.text_register.append([i, translated_string])
 
-
-def get_timestamp(text_register: list, input: str):
-    # Check if the input substring can be found in the text_register strings
-    timestamps_list = []
-    # Go through each line of the text_register
-    for i in range(len(text_register)):
-        if text_register[i][1].find(input) != -1:
-            # Add the index in text_register converted in seconds
-            timestamps_list.append((i + 1) * STEP)
-    return timestamps_list
-
-
-# get user input
-# TODO: Set all code below in a function to run from the main file
-user_input = input('Which word are you looking for?')
-
-while True:
-    # Will mark completed when total offset + duration will be > file_duration
-    try:
-        # TODO: Use a parameter to search for the .wav file in the folder
-        with sr.AudioFile('../example/WhyHard.wav') as source:
-            r = sr.Recognizer()
-            file_length = source.DURATION  # float
-            # r.energy_threshold = 300 # if we have trouble getting clear audio
-            r.adjust_for_ambient_noise(source)
-            # Even if we open the file, we need to create an audio object by recording
-            audio = r.record(source, offset=OFFSET, duration=CHUNK_LEN)
-
-            text = r.recognize_sphinx(audio_data=audio, language='en-US')  # , show_all=True) # Show All gives
-            # all possible translations
-            # Throws an exception if no words or not gibberish type speech_recognition.UnknownValueError
-            print('text: ', text)
-            # print('progression: ', {(CHUNK_LEN-OVERLAP)*i/file_length*100} '%')
-            OFFSET += STEP
-
-            if OFFSET + CHUNK_LEN > file_length:
-                break
-            counter += 1
-            text_register.append([counter, text])
-
-    except sr.UnknownValueError as error:
-        print('Speech unintelligible or no words at all in this chunk')
-        OFFSET += STEP
-
-        if OFFSET + CHUNK_LEN > file_length:
-            break
-        counter += 1
-        text_register.append([counter, 'NoWordsErrorString'])
-        pass
->>>>>>> Stashed changes
-
-    return "{\"step\":"+str((CHUNK_LEN-OVERLAP))+",\"list\":[" + ",".join(text_register) + "]}"
+        finish = time.perf_counter()
+        print(f'Finished translation in {round(finish - start, 2)} seconds')

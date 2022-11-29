@@ -2,6 +2,10 @@
 .wav
 *.mp4
 *.wav
+*.pbmm
+*.scorer
+*.tflite
+ffmpeg.exe
 
 # Eclipse
 .classpath
